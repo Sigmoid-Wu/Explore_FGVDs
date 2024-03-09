@@ -3,6 +3,7 @@ import os
 import sys
 import argparse
 import json
+from typing import List, Tuple, Callable, Dict, Any
 
 sys.path.append("/home/hyh30/descriptionRAG/")
 parser = argparse.ArgumentParser()
@@ -48,12 +49,7 @@ parser.add_argument("--batch_size", type=int, default=2)
 parser.add_argument("--describe", action="store_true")
 parser.add_argument("--instruction", action="store_true")
 parser.add_argument("--clip", action="store_true")
-# parser.add_argument(
-#     "--num_samples",
-#     type=int,
-#     default=-1,
-#     help="Number of samples to evaluate on. -1 for all samples.",
-# )
+
 parser.add_argument(
     "--num_samples",
     type=int,
@@ -75,7 +71,9 @@ def main():
     module = importlib.import_module(
         f"generate_description.eval.description_{args.model}"
     )
-    generate_fn = getattr(module, "generate_description")
+    generate_fn: Callable[..., Any] = getattr(module, "generate_description")
+    model_name = "openflamingo9B" if "9b" in args.model_cfg else args.model
+    print(f"Generating descriptions for {model_name} model")
     for shot in args.shots:
         for seed in args.trial_seeds:
             descriptions, ids, train_data = generate_fn(
@@ -84,7 +82,7 @@ def main():
                 num_shot=shot,
                 max_generation_length=args.max_length,  # original 50
                 num_beams=3,
-                length_penalty=-2.0,
+                length_penalty=1.0,
                 temperature=0.2,
                 top_k=20,
             )
@@ -101,12 +99,12 @@ def main():
         ]
         if args.dataset_type == "test":
             results_file_path = os.path.join(
-                f"/home/hyh30/descriptionRAG/data/{args.model}/{args.dataset_name}",
+                f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
                 f"{args.dataset_name}_description_{args.dataset_type}_{'RS' if not args.clip else 'SIIR'}_{shot}-shot_{args.others}_instruction{args.instruction}.json",
             )
         else:
             results_file_path = os.path.join(
-                f"/home/hyh30/descriptionRAG/data/{args.model}/{args.dataset_name}",
+                f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
                 f"{args.dataset_name}_description_{args.dataset_type}_{args.others}_instruction{args.instruction}.json",
             )
 
