@@ -1,5 +1,6 @@
 import argparse
 import importlib
+from typing import List, Tuple, Dict, Union
 import json
 import os
 import random
@@ -42,6 +43,7 @@ parser.add_argument("--others", type=str, help="type something to make a differe
 parser.add_argument("--iterative", action="store_true")
 # Trial arguments
 
+
 parser.add_argument(
     "--dataset_type",
     type=str,
@@ -76,7 +78,15 @@ parser.add_argument(
 )
 
 
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
 def main():
+    set_seed(24)
     args, leftovers = parser.parse_known_args()
     for shot in args.shots:
         for seed in args.trial_seeds:
@@ -86,7 +96,7 @@ def main():
                 num_shot=shot,
                 max_generation_length=args.max_length,  # original 50
                 num_beams=3,
-                length_penalty=-2.0,
+                length_penalty=1.0,
                 temperature=0.2,
                 top_k=20,
             )
@@ -105,12 +115,12 @@ def main():
         if args.dataset_type == "test":
             results_file_path = os.path.join(
                 f"/home/hyh30/descriptionRAG/data/idefics/{args.dataset_name}",
-                f"{args.dataset_name}_description_{args.dataset_type}_{'RS' if not args.clip else 'SIIR'}_{shot}-shot_{args.others}_instruction{args.instruction}.json",
+                f"{args.dataset_name}_description_{args.dataset_type}_{'RS' if not args.clip else 'SIIR'}_{shot}-shot_{args.others}.json",
             )
         else:
             results_file_path = os.path.join(
                 f"/home/hyh30/descriptionRAG/data/idefics/{args.dataset_name}",
-                f"{args.dataset_name}_description_{args.dataset_type}_{args.others}_instruction{args.instruction}.json",
+                f"{args.dataset_name}_description_{args.dataset_type}_{args.others}.json",
             )
 
         with open(results_file_path, "w") as f:
@@ -192,15 +202,12 @@ def generate_description_prompt(
 ):
     class_name, image = data[0], data[1]
     prompt = []
-
-    if instruction:
-        contentvqa = "Provide an answer to the question. Use the image to answer."
-        contentcap = "Provide a description and use the image to describe."
-        prompt.append(f"Instruction: {contentvqa if not describe else contentcap}\n")
+    contentvqa = "provide an answer to the question. Use the image to answer."
+    prompt.append(f"Instruction: {contentvqa}\n")
     if describe:
-        question = f'Describe the main elements in this image for classifying {class_name if dataset_type == "train" else name_map[dataset_name]}, and how do these elements interact or relate to each other?'
+        question = f"What specific features distinguish {(class_name if dataset_type == 'train' else name_map[dataset_name])} in this image? Mention color, size, and any unique markings."
     else:
-        question = f'What are the main elements in this image for classifying {class_name if dataset_type == "train" else name_map[dataset_name]}, and how do these elements interact or relate to each other?'
+        question = f"What does this image depict in detail? Provide a description of all major elements, their attributes, along with their interactions or relations within the scene."
     if dataset_type == "test":
         for demo_image in batch_demo_samples:
             demo_image_id = demo_image["id"]
@@ -211,16 +218,15 @@ def generate_description_prompt(
                 if description_info
                 else "Description not available."
             )
-
             prompt.extend(
                 [
-                    "User: ",
+                    "Image:",
                     demo_image["image"],
-                    f"{question}\nAssistant: {description}\n",
+                    f"Question: {question}Answer: {description}\n",
                 ]
             )
 
-    prompt.extend(["User: ", image, f"{question}\nAssistant: "])
+    prompt.extend(["Image:", image, f"Question: {question}Answer: "])
     return prompt
 
 
@@ -263,9 +269,10 @@ def generate_description_prompt(
 
 
 def postprocess_description_generation_ide(prediction):
-    if "Assistant" in prediction:
-        extracted_text = prediction.split("Assistant:")[-1].strip()
-        extracted_text = extracted_text.split("\n")[0].strip()
+    if "Answer:" in prediction:
+        extracted_text = prediction.split("Answer:")[-1].strip()
+        extracted_text = extracted_text.replace("\n", "")
+        extracted_text = extracted_text.split("Question:")[0].strip()
     else:
         extracted_text = prediction.split("Answer:")[1]
     return extracted_text
@@ -318,13 +325,13 @@ def generate_description(
     args: argparse.Namespace,
     seed: int = 42,
     num_shot: int = 1,
-    max_generation_length: int = 50,
+    max_generation_length: int = 60,
     num_beams: int = 3,
     length_penalty: float = -2.0,
     no_repeat_ngram_size: int = 2,
     temperature: float = 0.2,
     top_k: int = 10,
-):
+) -> Tuple[List, List[int], torch.utils.data.Dataset]:
     """
     Evaluate a model on classification dataset.
 
@@ -339,6 +346,8 @@ def generate_description(
         float: accuracy score
     """
     np.random.seed(seed)
+    torch.manual_seed(seed)
+    random.seed(seed)
     cfg = OmegaConf.load(args.model_cfg)
 
     if args.dataset_name == "imagenet_subset":
@@ -372,7 +381,7 @@ def generate_description(
             test_dataset, args.num_samples, args.batch_size, seed=seed
         )
 
-    np.random.seed(seed)
+    set_seed(seed)
     # model = model.to_bettertransformer()
     pretrained_model_path = cfg.pretrained_model_path
     model = IdeficsForVisionText2Text.from_pretrained(
@@ -391,7 +400,7 @@ def generate_description(
     all_ids = []
     cnt = 0
     name_map = {
-        "imagenet_subset": "this thing",
+        "imagenet_subset": "thing",
         "cub200": "bird",
         "stanford_dog": "dog",
         "stanford_car": "car",
@@ -400,7 +409,7 @@ def generate_description(
 
     batch_inference_times = []
     if args.dataset_type == "test":
-        file_path = f"/home/hyh30/descriptionRAG/data/{args.model}/{args.dataset_name}/{args.dataset_name}_description_train_{args.others}.json"
+        file_path = f"/home/hyh30/descriptionRAG/data/{args.model}/{args.dataset_name}/{args.dataset_name}_description_train_{args.others}_instructionFalse.json"
         with open(file_path, "r") as file:
             description_file = json.load(file)
         descriptions = {
@@ -458,12 +467,10 @@ def generate_description(
                 **inputs,
                 max_new_tokens=max_generation_length,
                 eos_token_id=exit_condition,
-                bad_words_ids=bad_words_ids,
-                output_scores=True,
-                num_beams=num_beams,
                 length_penalty=length_penalty,
+                bad_words_ids=bad_words_ids,
                 no_repeat_ngram_size=no_repeat_ngram_size,
-                temperature=temperature,
+                output_scores=True,
                 top_k=top_k,
                 return_dict_in_generate=True,
             )
