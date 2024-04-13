@@ -43,13 +43,13 @@ parser.add_argument(
 )
 parser.add_argument("--dataset_name", type=str, default="cub200")
 parser.add_argument("--dataset_root", type=str, default="/data/hyh/CUB_200_2011/")
-
+parser.add_argument("--sim_text", action="store_true")
 # generation arguments
 parser.add_argument("--batch_size", type=int, default=2)
 parser.add_argument("--describe", action="store_true")
 parser.add_argument("--instruction", action="store_true")
 parser.add_argument("--clip", action="store_true")
-
+parser.add_argument("--high_des", action="store_true")
 parser.add_argument(
     "--num_samples",
     type=int,
@@ -60,6 +60,7 @@ parser.add_argument("--max_length", type=int, default=50)
 parser.add_argument(
     "--others", type=str, default="len50", help="type specific experiments"
 )
+parser.add_argument("--length_penalty", type=float, default=-2.0)
 
 
 def main():
@@ -73,7 +74,9 @@ def main():
     )
     generate_fn: Callable[..., Any] = getattr(module, "generate_description")
     model_name = "openflamingo9B" if "9b" in args.model_cfg else args.model
-    print(f"Generating descriptions for {model_name} model")
+    print(
+        f"Generating descriptions for {model_name} model on {args.dataset_name} dataset."
+    )
     for shot in args.shots:
         for seed in args.trial_seeds:
             descriptions, ids, train_data = generate_fn(
@@ -82,9 +85,8 @@ def main():
                 num_shot=shot,
                 max_generation_length=args.max_length,  # original 50
                 num_beams=3,
-                length_penalty=1.0,
-                temperature=0.2,
-                top_k=20,
+                length_penalty=args.length_penalty,
+                # temperature=0.2,
             )
         results = [
             {
@@ -98,15 +100,33 @@ def main():
             for _, (idx, des) in enumerate(zip(ids, descriptions))
         ]
         if args.dataset_type == "test":
-            results_file_path = os.path.join(
-                f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
-                f"{args.dataset_name}_description_{args.dataset_type}_{'RS' if not args.clip else 'SIIR'}_{shot}-shot_{args.others}_instruction{args.instruction}.json",
-            )
+            if shot == 0:
+                results_file_path = os.path.join(
+                    f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
+                    f"{args.dataset_name}_description_{args.dataset_type}_{shot}-shot_{args.others}_nolabel.json",
+                )
+            else:
+                if args.clip:
+                    results_file_path = os.path.join(
+                        f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
+                        f"{args.dataset_name}_description_{args.dataset_type}_{'SIIR'}_{shot}-shot_{args.others}_nolabel.json",
+                    )
+                else:
+                    results_file_path = os.path.join(
+                        f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
+                        f"{args.dataset_name}_description_{args.dataset_type}_{'RS' if not args.sim_text else 'STTR'}_{shot}-shot_{args.others}_nolabel.json",
+                    )
         else:
-            results_file_path = os.path.join(
-                f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
-                f"{args.dataset_name}_description_{args.dataset_type}_{args.others}_instruction{args.instruction}.json",
-            )
+            if args.high_des:
+                results_file_path = os.path.join(
+                    f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
+                    f"{args.dataset_name}_description_{args.dataset_type}_{shot}-shot_{args.others}_nolabel.json",
+                )
+            else:
+                results_file_path = os.path.join(
+                    f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
+                    f"{args.dataset_name}_description_{args.dataset_type}_{args.others}_nolabel.json",
+                )
 
         with open(results_file_path, "w") as f:
             json.dump(results, f, indent=4)
