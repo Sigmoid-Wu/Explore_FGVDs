@@ -5,9 +5,10 @@ import argparse
 import json
 from typing import List, Tuple, Callable, Dict, Any
 
-sys.path.append("/home/hyh30/descriptionRAG/")
+dir_path = "YOUR PATH"
+sys.path.append(dir_path)
 parser = argparse.ArgumentParser()
-
+{dir_path}
 # Model arguments
 parser.add_argument(
     "--model",
@@ -15,9 +16,7 @@ parser.add_argument(
     help="Model name. `openflamingo` or `idefics` is supported.",
     default="idefics",
 )
-parser.add_argument(
-    "--model_cfg", type=str, default="/home/hyh30/descriptionRAG/ide.yaml"
-)
+parser.add_argument("--model_cfg", type=str, default="/ide.yaml")
 parser.add_argument("--device", type=int, default=1)
 
 # results arguments
@@ -42,7 +41,7 @@ parser.add_argument(
     help="generate description for train or test dataset",
 )
 parser.add_argument("--dataset_name", type=str, default="cub200")
-parser.add_argument("--dataset_root", type=str, default="/data/hyh/CUB_200_2011/")
+parser.add_argument("--dataset_root", type=str, default="")
 parser.add_argument("--sim_text", action="store_true")
 # generation arguments
 parser.add_argument("--batch_size", type=int, default=2)
@@ -102,29 +101,29 @@ def main():
         if args.dataset_type == "test":
             if shot == 0:
                 results_file_path = os.path.join(
-                    f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
+                    f"{dir_path}/data/{model_name}/{args.dataset_name}",
                     f"{args.dataset_name}_description_{args.dataset_type}_{shot}-shot_{args.others}_nolabel.json",
                 )
             else:
                 if args.clip:
                     results_file_path = os.path.join(
-                        f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
+                        f"{dir_path}/data/{model_name}/{args.dataset_name}",
                         f"{args.dataset_name}_description_{args.dataset_type}_{'SIIR'}_{shot}-shot_{args.others}_nolabel.json",
                     )
                 else:
                     results_file_path = os.path.join(
-                        f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
+                        f"{dir_path}/data/{model_name}/{args.dataset_name}",
                         f"{args.dataset_name}_description_{args.dataset_type}_{'RS' if not args.sim_text else 'STTR'}_{shot}-shot_{args.others}_nolabel.json",
                     )
         else:
             if args.high_des:
                 results_file_path = os.path.join(
-                    f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
+                    f"{dir_path}/data/{model_name}/{args.dataset_name}",
                     f"{args.dataset_name}_description_{args.dataset_type}_{shot}-shot_{args.others}_nolabel.json",
                 )
             else:
                 results_file_path = os.path.join(
-                    f"/home/hyh30/descriptionRAG/data/{model_name}/{args.dataset_name}",
+                    f"{dir_path}/data/{model_name}/{args.dataset_name}",
                     f"{args.dataset_name}_description_{args.dataset_type}_{args.others}_nolabel.json",
                 )
 

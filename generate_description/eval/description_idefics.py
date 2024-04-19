@@ -7,7 +7,8 @@ import random
 from collections import defaultdict
 import sys
 
-sys.path.append("/home/hyh30/descriptionRAG")
+dir_path = "YOUR PATH"
+sys.path.append(dir_path)
 import numpy as np
 import torch
 import utils
@@ -18,7 +19,6 @@ from omegaconf import OmegaConf
 
 transformers.logging.set_verbosity_error()
 from transformers import IdeficsForVisionText2Text, AutoProcessor, AutoTokenizer
-from generate_description.eval.eval_model import BaseEvalModel
 from PIL import Image
 
 
@@ -27,7 +27,6 @@ from generate_description.eval.classification_utils import *
 import copy
 
 parser = argparse.ArgumentParser()
-
 parser.add_argument(
     "--model",
     type=str,
@@ -76,6 +75,8 @@ parser.add_argument(
     default="/data1/share/idefics/idefics",
     help="model path",
 )
+parser.add_argument("--sim_text", action="store_true")
+parser.add_argument("--high_des", action="store_true")
 
 
 def set_seed(seed):
@@ -96,9 +97,9 @@ def main():
                 num_shot=shot,
                 max_generation_length=args.max_length,  # original 50
                 num_beams=3,
-                length_penalty=1.0,
+                length_penalty=1.5,
                 temperature=0.2,
-                top_k=20,
+                top_k=10,
             )
 
         results = [
@@ -114,13 +115,13 @@ def main():
         ]
         if args.dataset_type == "test":
             results_file_path = os.path.join(
-                f"/home/hyh30/descriptionRAG/data/idefics/{args.dataset_name}",
+                f"{dir_path}/data/idefics/{args.dataset_name}",
                 f"{args.dataset_name}_description_{args.dataset_type}_{'RS' if not args.clip else 'SIIR'}_{shot}-shot_{args.others}.json",
             )
         else:
             results_file_path = os.path.join(
-                f"/home/hyh30/descriptionRAG/data/idefics/{args.dataset_name}",
-                f"{args.dataset_name}_description_{args.dataset_type}_{args.others}.json",
+                f"{dir_path}/data/idefics/{args.dataset_name}",
+                f"{args.dataset_name}_description_{args.dataset_type}_{shot}-shot_{args.others}.json",
             )
 
         with open(results_file_path, "w") as f:
@@ -190,89 +191,163 @@ def main():
 #         ]
 #     )
 #     return prompt
+# def generate_description_prompt(
+#     data,
+#     dataset_name,
+#     dataset_type,
+#     batch_demo_samples,
+#     descriptions,  # 这里传入的是image_id到描述的映射
+#     name_map,
+#     describe=False,
+#     instruction=False,
+# ):
+#     class_name, image = data[0], data[1]
+#     prompt = []
+#     contentvqa = "provide an answer to the question. Use the image to answer."
+#     prompt.append(f"Instruction: {contentvqa}\n")
+#     if describe:
+#         question = f"What specific features distinguish {(class_name if dataset_type == 'train' else name_map[dataset_name])} in this image? Mention color, size, and any unique markings."
+#     else:
+#         question = f"What does this image depict in detail? Provide a description of all major elements, their attributes, along with their interactions or relations within the scene."
+#     if dataset_type == "test":
+#         for demo_image in batch_demo_samples:
+#             demo_image_id = demo_image["id"]
+#             # 从descriptions中获取对应的描述信息
+#             description_info = descriptions.get(demo_image_id)
+#             description = (
+#                 description_info["class_description"]
+#                 if description_info
+#                 else "Description not available."
+#             )
+#             prompt.extend(
+#                 [
+#                     "Image:",
+#                     demo_image["image"],
+#                     f"Question: {question}Answer: {description}\n",
+#                 ]
+#             )
+
+#     prompt.extend(["Image:", image, f"Question: {question}Answer: "])
+#     return prompt
+
+
+# def generate_description_prompt(
+#     data,
+#     dataset_name,
+#     dataset_type,
+#     batch_demo_samples,
+#     descriptions,  # 这里传入的是image_id到描述的映射
+#     name_map,
+#     describe=False,
+#     instruction=False,
+# ):
+#     class_name, image = data[0], data[1]
+#     prompt = []
+#     contentvqa = "Use the image to provide an caption according to requirements."
+#     prompt.append(f"Instruction: {contentvqa}\n")
+#     if describe:
+#         question = f"What are the main visual features for {(class_name if dataset_type == 'train' else name_map[dataset_name])} in this image?"
+#     else:
+#         question = f"What are the main elements in this image, and how do they interact or relate to each other?"
+#     if dataset_type == "test" and len(batch_demo_samples) > 0:
+#         for demo_image in batch_demo_samples:
+#             demo_image_id = demo_image["id"]
+#             # 从descriptions中获取对应的描述信息
+#             description_info = descriptions.get(demo_image_id)
+#             description = (
+#                 description_info["class_description"]
+#                 if description_info
+#                 else "Description not available."
+#             )
+#             prompt.extend(
+#                 [
+#                     "User:",
+#                     demo_image["image"],
+#                     f"{question}\nAssistant: {description}\n",
+#                 ]
+#             )
+
+#     prompt.extend(["User:", image, f": {question}\nAssistant: "])
+#     return prompt
+
+
 def generate_description_prompt(
     data,
     dataset_name,
     dataset_type,
     batch_demo_samples,
     descriptions,  # 这里传入的是image_id到描述的映射
+    high_descriptions,
     name_map,
     describe=False,
     instruction=False,
+    high_des=False,
 ):
     class_name, image = data[0], data[1]
     prompt = []
-    contentvqa = "provide an answer to the question. Use the image to answer."
+    contentvqa = "Use the image to provide an caption according to requirements."
     prompt.append(f"Instruction: {contentvqa}\n")
     if describe:
-        question = f"What specific features distinguish {(class_name if dataset_type == 'train' else name_map[dataset_name])} in this image? Mention color, size, and any unique markings."
+        question = f"What are the main visual features for {name_map[dataset_name]} in this image?"
+        # question = f"What are the main visual features for classifying {name_map[dataset_name]} in this image?"
     else:
-        question = f"What does this image depict in detail? Provide a description of all major elements, their attributes, along with their interactions or relations within the scene."
-    if dataset_type == "test":
-        for demo_image in batch_demo_samples:
-            demo_image_id = demo_image["id"]
-            # 从descriptions中获取对应的描述信息
-            description_info = descriptions.get(demo_image_id)
-            description = (
-                description_info["class_description"]
-                if description_info
-                else "Description not available."
-            )
+        question = f"What are the main elements in this image, and how do they interact or relate to each other?"
+    if dataset_type == "test" and len(batch_demo_samples) > 0:
+        for i, demo_image in enumerate(batch_demo_samples):
+            if not high_des:
+                demo_image_id = demo_image["id"]
+                # 从descriptions中获取对应的描述信息
+                description_info = descriptions.get(demo_image_id)
+                description = (
+                    description_info["class_description"]
+                    if description_info
+                    else "Description not available."
+                )
+                prompt.extend(
+                    [
+                        "User:",
+                        demo_image["image"],
+                        f"{question}\nAssistant: {description}\n",
+                    ]
+                )
+            else:
+                if describe:
+                    description = high_descriptions[i]["local_des"]
+                else:
+                    description = high_descriptions[i]["global_des"]
+                prompt.extend(
+                    [
+                        "User:",
+                        demo_image["image"],
+                        f"{question}\nAssistant: {description}\n",
+                    ]
+                )
+    if dataset_type == "train" and len(batch_demo_samples) > 0:
+        for i, demo_image in enumerate(batch_demo_samples):
+            if describe:
+                description = high_descriptions[i]["local_des"]
+            else:
+                description = high_descriptions[i]["global_des"]
             prompt.extend(
                 [
-                    "Image:",
+                    "User:",
                     demo_image["image"],
-                    f"Question: {question}Answer: {description}\n",
+                    f"{question}\nAssistant: {description}\n",
                 ]
             )
-
-    prompt.extend(["Image:", image, f"Question: {question}Answer: "])
+    if instruction:
+        prompt.extend(["User:", image, f"{question}\nAssistant: It has "])
+    else:
+        prompt.extend(["User:", image, f"{question}\nAssistant: "])
     return prompt
 
 
-# def generate_description_prompt_iterative(data, dataset_name, misclassified, dataset):
-#     class_name = data["class_name"]
-#     image = data["image"]
-#     actual_class_id = data["class_id"]
-#     misclassified_image = None  # 初始化为 None 或者默认值
-#     misclassified_class_name = ""  # 同样初始化
-#     if str(actual_class_id) in misclassified:
-#         most_predicted_id = misclassified[str(actual_class_id)]
-#         # 找到数据集中属于most_predicted_id类别的所有图片索引
-#         misclassified_image_indexes = [
-#             i for i, x in enumerate(dataset.labels) if x == most_predicted_id
-#         ]
-#         # 如果确实有属于这个类别的图片
-#         if misclassified_image_indexes:
-#             random_index = random.choice(misclassified_image_indexes)
-#             # 假设dataset可以直接用索引访问，获取被错误分类的类别名称
-#             misclassified_data = dataset[random_index]
-#             misclassified_image = misclassified_data["image"]
-#             misclassified_class_name = misclassified_data["class_name"]
-#             question = f""
-#         else:
-#             # 如果找不到任何属于most_predicted_id的图片，回退到默认问题
-#             question = f'Describe this image for classifying the {class_name if class_name is not None else " bird"}'
-#     else:
-#         question = f'Describe this image for classifying the {class_name if class_name is not None else " bird"}'
-#     prompt = [
-#         "Instruction: Analyze the following images.\n",
-#         "User: ",
-#         image,
-#         class_name,
-#         misclassified_image,
-#         misclassified_class_name,
-#         "Describe distinguishing features present in the First image like shape, color or size which the second doesn't have.\nAssistant:",
-#     ]
-
-#     return prompt
-
-
 def postprocess_description_generation_ide(prediction):
-    if "Answer:" in prediction:
-        extracted_text = prediction.split("Answer:")[-1].strip()
+    if "Assistant:" in prediction:
+        extracted_text = prediction.split("Assistant:")[-1].strip()
         extracted_text = extracted_text.replace("\n", "")
-        extracted_text = extracted_text.split("Question:")[0].strip()
+        # index = extracted_text.rfind(".")
+        # extracted_text = extracted_text[: index + 1]
     else:
         extracted_text = prediction.split("Answer:")[1]
     return extracted_text
@@ -304,12 +379,27 @@ def prepare_eval_samples(dataset, num_samples, batch_size, seed):
     return loader
 
 
-def sample_batch_demos_from_query_set(query_set, num_shots, batch, clip=False):
-    if not clip:
+def sample_batch_demos_from_query_set(
+    query_set, num_shots, batch, clip=False, high_des=False
+):
+    if not clip and not high_des:
         return [
             [query_set[i] for i in random.sample(range(len(query_set)), num_shots)]
             for _ in range(len(batch))
         ]
+    elif high_des:
+        # 获取描述的所有 ID
+        high_des_ids = batch["high_des_ids"][0][:num_shots]
+
+        output = []
+        o = []  # 在循环外部创建一个列表，用于存储所有图像项的描述
+        for _, id in enumerate(high_des_ids):
+            x = copy.deepcopy(query_set.id2item(id))
+            o.append(x)
+        # 将所有图像项的描述添加到输出列表
+        for _ in range(len(batch["id"])):
+            output.append(o)
+        return output
     else:
         output = []
         for i in range(len(batch["id"])):
@@ -321,13 +411,25 @@ def sample_batch_demos_from_query_set(query_set, num_shots, batch, clip=False):
         return output
 
 
+def sample_batch_txt_sim_demos(query_set, num_shots, batch):
+
+    output = []
+    for i in range(len(batch["id"])):
+        o = []
+        for _, id in enumerate(batch["similar_text_ids"][i][:num_shots]):
+            x = copy.deepcopy(query_set.id2item(id))
+            o.append(x)
+        output.append(o)
+    return output
+
+
 def generate_description(
     args: argparse.Namespace,
     seed: int = 42,
     num_shot: int = 1,
     max_generation_length: int = 60,
     num_beams: int = 3,
-    length_penalty: float = -2.0,
+    length_penalty: float = 1.0,
     no_repeat_ngram_size: int = 2,
     temperature: float = 0.2,
     top_k: int = 10,
@@ -349,10 +451,19 @@ def generate_description(
     torch.manual_seed(seed)
     random.seed(seed)
     cfg = OmegaConf.load(args.model_cfg)
-
+    high_des_path = (
+        f"{dir_path}/generate_description/eval/high-quality_description.json"
+    )
+    with open(high_des_path, "r") as f:
+        h_des = json.load(f)
+    h_des = h_des[args.dataset_name]
     if args.dataset_name == "imagenet_subset":
-        train_dataset = ImageNetDataset(os.path.join(args.dataset_root, "train"))
-        test_dataset = ImageNetDataset(os.path.join(args.dataset_root, "val"))
+        train_dataset = ImageNetDataset(
+            os.path.join(args.dataset_root, "train"), train=True
+        )
+        test_dataset = ImageNetDataset(
+            os.path.join(args.dataset_root, "val"), train=False
+        )
     elif args.dataset_name == "cub200":
         train_dataset = CUB200Dataset(root=args.dataset_root)
         test_dataset = CUB200Dataset(root=args.dataset_root, train=False)
@@ -366,6 +477,9 @@ def generate_description(
     elif args.dataset_name == "stanford_dog":
         train_dataset = StanfordDogDataset(root=args.dataset_root)
         test_dataset = StanfordDogDataset(root=args.dataset_root, train=False)
+    elif args.dataset_name == "flower":
+        train_dataset = Flowers102Dataset(root=args.dataset_root)
+        test_dataset = Flowers102Dataset(root=args.dataset_root, train=False)
     else:
         raise ValueError(f"Unsupported dataset {args.dataset_name}")
 
@@ -400,33 +514,45 @@ def generate_description(
     all_ids = []
     cnt = 0
     name_map = {
-        "imagenet_subset": "thing",
-        "cub200": "bird",
-        "stanford_dog": "dog",
-        "stanford_car": "car",
+        "imagenet_subset": "this object",
+        "cub200": "this bird",
+        "stanford_dog": "this dog",
+        "stanford_car": "this car",
+        "flower": "this flower",
     }
     import time
 
     batch_inference_times = []
-    if args.dataset_type == "test":
-        file_path = f"/home/hyh30/descriptionRAG/data/{args.model}/{args.dataset_name}/{args.dataset_name}_description_train_{args.others}_instructionFalse.json"
+    if args.dataset_type == "test" and not args.high_des:
+        file_path = f"{dir_path}/data/{args.model}/{args.dataset_name}/{args.dataset_name}_description_train_{args.others}_new_nolabel.json"
         with open(file_path, "r") as file:
             description_file = json.load(file)
         descriptions = {
             item["document"]["image_id"]: item["document"] for item in description_file
         }
+        # descriptions = None
+        # batch_demo_samples = None
     else:
         descriptions = None
         batch_demo_samples = None
     np.random.seed(seed)
     for _, batch in tqdm(
         enumerate(dataloader),
-        desc=f"Generating description on {args.dataset_name}",
+        desc=f"Generating description {num_shot} on {args.dataset_name}",
         total=len(dataloader),
     ):
         if args.dataset_type == "test":
+            if args.sim_text:
+                batch_demo_samples = sample_batch_txt_sim_demos(
+                    train_dataset, num_shot, batch
+                )
+            else:
+                batch_demo_samples = sample_batch_demos_from_query_set(
+                    train_dataset, num_shot, batch, args.clip, high_des=args.high_des
+                )
+        if args.high_des and args.dataset_type == "train":
             batch_demo_samples = sample_batch_demos_from_query_set(
-                train_dataset, num_shot, batch, args.clip
+                train_dataset, num_shot, batch, args.clip, high_des=args.high_des
             )
         # print(batch)
         # Prepare text and images for the batch
@@ -435,11 +561,13 @@ def generate_description(
                 x,
                 args.dataset_name,
                 args.dataset_type,
-                batch_demo_samples[index] if args.dataset_type == "test" else None,
+                batch_demo_samples[index],
                 descriptions,
+                h_des,
                 name_map,
                 args.describe,
                 args.instruction,
+                args.high_des,
             )
             for index, x in enumerate(
                 zip(
@@ -451,7 +579,7 @@ def generate_description(
         # If there is image data in the batch, send it to the model
         if batch_text:
             if cnt == 0:
-                print(batch_text[0])
+                print(batch_text)
                 cnt += 1
             # Call the model's method to get outputs
             # (modify this according to your model and needs)
@@ -467,18 +595,18 @@ def generate_description(
                 **inputs,
                 max_new_tokens=max_generation_length,
                 eos_token_id=exit_condition,
+                num_beams=num_beams,
                 length_penalty=length_penalty,
                 bad_words_ids=bad_words_ids,
                 no_repeat_ngram_size=no_repeat_ngram_size,
                 output_scores=True,
-                top_k=top_k,
                 return_dict_in_generate=True,
             )
             generated_ids = generated_outputs.sequences
             generated_text = processor.batch_decode(
                 generated_ids, skip_special_tokens=True
             )
-            print(generated_text[0])
+            # print(generated_text[0])
             # break
             end_time = time.time()
             batch_inference_times.append((end_time - start_time) * 1000)
@@ -486,7 +614,9 @@ def generate_description(
                 postprocess_description_generation_ide(out).replace('"', "")
                 for out in generated_text
             ]
-            # print(new_predictions[0])
+            if cnt == 1:
+                print(new_predictions[0])
+                cnt += 1
             # print(batch['id'])
             all_outputs.extend(new_predictions)
             all_ids.extend(batch["id"])

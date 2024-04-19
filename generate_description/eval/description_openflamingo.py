@@ -16,7 +16,6 @@ import transformers
 
 transformers.logging.set_verbosity_error()
 
-# from eval_model import BaseEvalModel
 from generate_description.eval.models.open_flamingo import EvalModel as OpenFlamingo
 
 from generate_description.eval.eval_datasets import *
@@ -24,7 +23,6 @@ from generate_description.eval.classification_utils import *
 
 
 parser = argparse.ArgumentParser()
-# parser.add_argument("--others", type=str, help="type specific experiments")
 parser.add_argument(
     "--model",
     type=str,
@@ -92,11 +90,9 @@ parser.add_argument(
     help="Directory where rices features for all choices of in-context examples are stored as a pkl file with the dataset name. If None, features are re-computed by script.",
 )
 parser.add_argument("--dataset_name", type=str, default="imagenet")
-parser.add_argument("--dataset_root", type=str, default="/tmp")
+parser.add_argument("--dataset_root", type=str, default="/data/")
 parser.add_argument("--max_length", type=int, default=50)
-parser.add_argument(
-    "--model_cfg", type=str, default="/home/hyh30/descriptionRAG/of9b.yaml"
-)
+parser.add_argument("--model_cfg", type=str, default="of9b.yaml")
 
 
 parser.add_argument(
@@ -117,13 +113,6 @@ def set_seed(seed):
 def main():
 
     args = parser.parse_args()
-    file_path = f"data/openflamingo/"
-    assert os.path.exists(file_path), f"File not found: {file_path}"
-
-    if args.model != "open_flamingo" and args.shots != [0]:
-        raise ValueError("Only 0 shot eval is supported for non-open_flamingo models")
-
-    print(f"Evaluating on {args.dataset_name} Dataset...")
 
     for seed in args.trial_seeds:
         descriptions, ids, train_data = generate_description(
@@ -158,48 +147,40 @@ def main():
 caption_instruction = f"<image>Describe this image in detail: The image shows"
 
 
-# def get_prompt(label=None, instruction=False, describe=False):
-#     prompt = ""
-#     if instruction:
-#         if describe:
-#             content = "Instruction: provide a description based on image."
-#         else:
-#             content = (
-#                 "Instruction: provide an answer to the question, using image to answer."
-#             )
-#         prompt = f"{content if instruction else ''}<image>Question: What are the main elements in this image for {label if label is not None else '' }, and how do these elements interact or relate to each other? Answer:"
-#     else:
-#         if describe:
-#             content = "Instruction: provide a description based on image."
-#         else:
-#             content = (
-#                 "Instruction: provide an answer to the question, using image to answer."
-#             )
-#         prompt = f"<image>Question: What are the main elements in this image for {label if label is not None else '' }, and how do these elements interact or relate to each other? Answer:"
-
-#     return prompt
-
-
 def sample_batch_demos_from_query_set(
     query_set: torch.utils.data.Dataset,
     num_shots: int,
     batch: Dict[str, List],
-    clip: bool = False,
+    sim_text: bool = False,
 ) -> List[List]:
-    batch_size = len(batch["id"]) if clip else len(batch)
+    batch_size = len(batch["id"])
 
-    if not clip:
-        return [
-            [query_set[i] for i in random.sample(range(len(query_set)), num_shots)]
-            for _ in range(batch_size)
+    if sim_text:
+        outputs = [
+            [
+                # copy.deepcopy(query_set.id2item(id))
+                query_set[id]
+                for id in batch["similar_text_ids"][i][:num_shots]
+            ]
+            for i in range(len(batch["class_name"]))
         ]
+        return outputs
+
+    return [
+        [query_set[i] for i in random.sample(range(len(query_set)), num_shots)]
+        for _ in range(batch_size)
+    ]
+
+
+def sample_batch_txt_sim_demos(query_set, num_shots, batch):
+
     output = []
-    for clip_similar_ids in batch["clip_similar_ids"]:
-        selected_demos = [
-            copy.deepcopy(query_set.id2item(id)) for id in clip_similar_ids[:num_shots]
-        ]
-        output.append(selected_demos)
-
+    for i in range(len(batch["class_name"])):
+        o = []
+        for _, id in enumerate(batch["similar_text_ids"][i][:num_shots]):
+            x = copy.deepcopy(query_set.id2item(id))
+            o.append(x)
+        output.append(o)
     return output
 
 
@@ -212,7 +193,7 @@ def generate_k_shot_template(k: int, prompts: str, assit_answers: List[str]) -> 
             for i in range(k)
         ]
     )
-    template += f"<image>{prompts[-1]} Answer:"
+    template += f"<image>Question:{prompts[-1]} Answer:"
     return template
 
 
@@ -223,10 +204,10 @@ def prompt_fn(
     name_map: Dict,
     describe: bool = False,
 ) -> str:
+
     if describe:
-        return f"What specific features distinguish {(class_name if dataset_type == 'train' else name_map[dataset_name])} in this image? Mention color, size, and any unique markings."
-    # overall description
-    return f"What does this image depict in detail? Provide a description of all major elements, their attributes, along with their interactions or relations within the scene."
+        return f"What distinctive visual features can be used to describe {name_map[dataset_name]} in this image?"
+    return f"What are the main elements in this image, and how do they interact or relate to each other?"
 
 
 def generate_batch_prompts(
@@ -234,42 +215,34 @@ def generate_batch_prompts(
     name_map: Dict,
     k: int,
     batch: Dict[str, List],
-    prompt_fn: Callable,
     batch_demo_samples: Union[None, List[List]],
     descriptions: Dict[int, Dict],
 ) -> List[str]:
+    question = (
+        f"What distinctive visual features can be used to describe {name_map[args.dataset_name]} in this image?"
+        if args.describe
+        else f"What are the main elements in this image, and how do they interact or relate to each other?"
+    )
     if batch_demo_samples is None:
-        batch_prompts = [
-            prompt_fn(args.dataset_name, args.dataset_type, x, name_map, args.describe)
-            for x in batch["class_name"]
+        # batch_prompts = [
+        #     question
+        #     # prompt_fn(args.dataset_name, args.dataset_type, x, name_map, args.describe)
+        #     for _ in batch["class_name"]
+        # ]
+        return [
+            f"<image>Question:{question} Answer:"
+            for _ in range(len(batch["class_name"]))
         ]
-        return [f"<image>Question:{prompt} Answer:" for prompt in batch_prompts]
-
-    batch_text = []
-    for i, demo_samples in enumerate(batch_demo_samples):
-        assit_answers = [
-            descriptions[item["id"]]["class_description"] for item in demo_samples
-        ]
-        prompts = [
-            prompt_fn(
-                args.dataset_name,
-                args.dataset_type,
-                item["class_name"],
-                name_map,
-                args.describe,
-            )
-            for item in demo_samples
-        ] + [
-            prompt_fn(
-                args.dataset_name,
-                args.dataset_type,
-                batch["class_name"][i],
-                name_map,
-                args.describe,
-            )
-        ]
-        batch_text.append(generate_k_shot_template(k, prompts, assit_answers))
-    return batch_text
+    return [
+        "".join(
+            [
+                f"<image>Question:{question} Answer:{descriptions[item['id']]['class_description']}<|endofchunk|>"
+                for item in demo_samples
+            ]
+        )
+        + f"<image>Question:{question} Answer:"
+        for demo_samples in batch_demo_samples
+    ]
 
 
 def generate_description(
@@ -278,10 +251,8 @@ def generate_description(
     num_shot: int = 1,
     max_generation_length: int = 50,
     num_beams: int = 3,
-    length_penalty: float = -2.0,
+    length_penalty: float = 2.0,
     no_repeat_ngram_size: int = 2,
-    temperature: float = 0.2,
-    top_k: int = 10,
 ) -> Tuple[List, List[int], torch.utils.data.Dataset]:
     """
     Evaluate a model on classification dataset.
@@ -296,10 +267,9 @@ def generate_description(
     Returns:
         float: accuracy score
     """
-    # if args.model != "open_flamingo":
-    #     raise NotImplementedError(
-    #         "evaluate_classification is currently only supported for OpenFlamingo"
-    #     )
+
+    model_name = "openflamingo9B" if "9b" in args.model_cfg else args.model
+
     cfg = OmegaConf.load(args.model_cfg)
     eval_model = OpenFlamingo(cfg)
 
@@ -307,24 +277,35 @@ def generate_description(
 
     if args.dataset_name == "imagenet_subset":
         train_dataset = ImageNetDataset(os.path.join(args.dataset_root, "train"))
+        # test_dataset = ImageNetDataset(
+        #     os.path.join(args.dataset_root, "val"),
+        #     similar_images_path=similar_text_path,
+        # )
         test_dataset = ImageNetDataset(os.path.join(args.dataset_root, "val"))
-        # prompt_fn = lambda x: get_prompt(x, args.describe, args.instruction)
     elif args.dataset_name == "cub200":
         train_dataset = CUB200Dataset(root=args.dataset_root)
+        # test_dataset = CUB200Dataset(
+        #     root=args.dataset_root, train=False, similar_text_path=similar_text_path
+        # )
         test_dataset = CUB200Dataset(root=args.dataset_root, train=False)
-        # prompt_fn = lambda x: get_prompt(x, args.describe, args.instruction)
     elif args.dataset_name == "stanford_car":
         train_dataset = StanfordCarDataset(
             root=(os.path.join(args.dataset_root, "train"))
         )
         test_dataset = StanfordCarDataset(
-            root=(os.path.join(args.dataset_root, "test"))
+            root=(os.path.join(args.dataset_root, "test")),
+            # similar_text_path=similar_text_path,
         )
-        # prompt_fn = lambda x: get_prompt(x, args.describe, args.instruction)
     elif args.dataset_name == "stanford_dog":
         train_dataset = StanfordDogDataset(root=args.dataset_root)
-        test_dataset = StanfordDogDataset(root=args.dataset_root, train=False)
-        # prompt_fn = lambda x: get_prompt(x, args.describe, args.instruction)
+        test_dataset = StanfordDogDataset(
+            root=args.dataset_root,
+            train=False,
+            #   similar_text_path=similar_text_path
+        )
+    elif args.dataset_name == "flower":
+        train_dataset = Flowers102Dataset(root=args.dataset_root, train=True)
+        test_dataset = Flowers102Dataset(root=args.dataset_root, train=False)
     else:
         raise ValueError(f"Unsupported dataset {args.dataset_name}")
 
@@ -348,6 +329,7 @@ def generate_description(
         "cub200": "bird",
         "stanford_dog": "dog",
         "stanford_car": "car",
+        "flower": "flower",
     }
     all_outputs = []
     all_ids = []
@@ -355,26 +337,32 @@ def generate_description(
     import time
 
     batch_inference_times = []
+    descriptions = None
+
     if args.dataset_type == "test" and num_shot > 0:
-        file_path = f"/home/hyh30/descriptionRAG/data/{args.model}/{args.dataset_name}/{args.dataset_name}_description_train_{args.others}.json"
+        file_path = f"/descriptionRAG/data/{model_name}/{args.dataset_name}/{args.dataset_name}_description_train_{args.others}_nolabel.json"
+        assert os.path.exists(
+            file_path
+        ), f"Training description file {file_path} does not exist"
         with open(file_path, "r") as file:
             description_file = json.load(file)
         descriptions = {
             item["document"]["image_id"]: item["document"] for item in description_file
         }
-    else:
-        descriptions = None
-    # batch_demo_samples = None
+
     is_icl = False if num_shot == 0 else True
     for _, batch in tqdm(
         enumerate(dataloader),
-        desc=f"Running inference {args.dataset_name}",
+        desc=f"device:{args.device} Running {args.sim_text}-{args.others}-{args.dataset_name} {num_shot}-shot",
         total=len(dataloader),
     ):
 
         batch_demo_samples = (
             sample_batch_demos_from_query_set(
-                query_set=train_dataset, num_shots=num_shot, batch=batch, clip=args.clip
+                query_set=train_dataset,
+                num_shots=num_shot,
+                batch=batch,
+                sim_text=args.sim_text,
             )
             if is_icl
             else None
@@ -384,21 +372,10 @@ def generate_description(
             name_map=name_map,
             k=num_shot,
             batch=batch,
-            prompt_fn=prompt_fn,
             batch_demo_samples=batch_demo_samples,
             descriptions=descriptions,
         )
 
-        # batch_text = [prompt_fn(x) for x in batch["class_name"]]
-        # batch_text = [caption_instruction for _ in batch['class_name']]
-        # batch_images = batch['image']
-        # if not is_icl:
-        #     batch_images = [[image_data] for _, image_data in enumerate(batch["image"])]
-        # else:
-        #     batch_images = []
-        #     for i, demo_samples in enumerate(batch_demo_samples):
-        #         context_images = [item["image"] for item in demo_samples]
-        #         batch_images.append(context_images + [batch["image"][i]])
         batch_images = (
             [[image_data] for image_data in batch["image"]]
             if not is_icl
@@ -413,9 +390,7 @@ def generate_description(
             if cnt == 0:
                 print(batch_text[0])
                 cnt += 1
-            # Call the model's method to get outputs
-            # (modify this according to your model and needs)
-            start_time = time.time()
+
             outputs = eval_model.get_outputs(
                 batch_text=batch_text,
                 batch_images=batch_images,
@@ -424,16 +399,13 @@ def generate_description(
                 num_beams=num_beams,
                 length_penalty=length_penalty,
                 no_repeat_ngram_size=no_repeat_ngram_size,
-                temperature=temperature,
-                top_k=top_k,
+                # temperature=temperature,
+                # top_k=top_k,
             )
-            end_time = time.time()
-            batch_inference_times.append((end_time - start_time) * 1000)
+
             all_outputs.extend(outputs)
             all_ids.extend(batch["id"])
 
-    average_inference_time = sum(batch_inference_times) / len(batch_inference_times)
-    print(f"Average Inference Time per Batch: {average_inference_time} seconds")
     return (
         all_outputs,
         all_ids,
