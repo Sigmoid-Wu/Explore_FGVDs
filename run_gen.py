@@ -8,7 +8,7 @@ from typing import List, Tuple, Callable, Dict, Any
 dir_path = "YOUR PATH"
 sys.path.append(dir_path)
 parser = argparse.ArgumentParser()
-{dir_path}
+
 # Model arguments
 parser.add_argument(
     "--model",
