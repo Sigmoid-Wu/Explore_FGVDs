@@ -37,7 +37,7 @@ While for openflamingo, you have to create another conda environment `fgvd2` and
 
 ### Generating Fine-Grained Visual Description
 
-#### IDEFICS
+#### [IDEFICS](https://huggingface.co/HuggingFaceM4/idefics-9b-instruct)
 
 ```bash
 source /usr/local/anaconda3/bin/activate /home/XXXX/.conda/envs/fgvd
@@ -61,7 +61,7 @@ python run_gen.py \
     --shots 0 \
 ```
 
-#### openflamingo
+#### [Openflamingo](https://huggingface.co/openflamingo/OpenFlamingo-9B-vitl-mpt7b)
 
 ```bash
 source /usr/local/anaconda3/bin/activate /home/XXXX/.conda/envs/fgvd2
@@ -84,7 +84,7 @@ python run_gen.py \
     --max_length 60 \
     --others "partlen" \
 ```
-#### MiniGPT-4
+#### [MiniGPT-4](https://huggingface.co/Vision-CAIR/MiniGPT-4)
 
 ```bash
 source /usr/local/anaconda3/bin/activate /home/XXXX/.conda/envs/fgvd
@@ -114,8 +114,8 @@ Please cite our paper if it is helpful to your work:
 
 
 ## TODO
-Working on it...
+Add Distintiveness evaluation.
 
 ## Acknowledgements
 
-Our implementations is built upon the source code from [OpenFlamingo](https://github.com/mlfoundations/open_flamingo/tree/main).
+Our implementations is built upon the source code from [OpenFlamingo](https://github.com/mlfoundations/open_flamingo/tree/main) and [MiniGPT-4](https://github.com/Vision-CAIR/MiniGPT-4).
