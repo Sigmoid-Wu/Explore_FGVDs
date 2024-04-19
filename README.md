@@ -9,8 +9,7 @@ This repository includes the PyTorch implementation for our ACM MM 2024 paper.
 
 * [Introduction](#introduction)
 * [Getting Started](#getting-started)
-    - [Evaluation of In-Context Classification](#evaluation-of-in-context-classification)
-    - [Generation of Visual Description](#generation-of-visual-description)
+    - [Generating Fine-Grained Visual Description](#generation-of-visual-description)
 * [Datasets](#datasets)
 * [Citation](#citation)
 * [Acknowledgements](#acknowledgements)
@@ -28,91 +27,82 @@ This repository includes the PyTorch implementation for our ACM MM 2024 paper.
 
 ## Getting Started
 
-Create a conda environment for running the scripts, run
+Create a conda environment for running the generation (MiniGPT-4 and IDEFICS), run
 ```bash
-conda create -n openflamingo python=3.9
+conda create -n fgvd python=3.9
 pip install -r requirements.txt
-pip install -e .
 ```
+While for openflamingo, you have to create another conda environment `fgvd2` and set versions as `transformers==4.28.1`.
 
-Download the OpenFlamingo v2 3B model from this [link](https://huggingface.co/openflamingo/OpenFlamingo-3B-vitl-mpt1b).
 
-Before starting the evaluation, make sure to cache both the image features (please refer to `cache_rices_image_features.py`) and textual features (please refer to `cache_rices_text_features.py`).
+### Generating Fine-Grained Visual Description
 
-Use command:
-```bash
-python open_flamingo/eval/cache_rices_xxx_features.py --dataset_root xxx --output_dir xxx --batch_size xxx 
-```
-### Evaluation of In-Context Classification
-Then, you can run the following command to evaluate the performance of in-context classification using OpenFlamingo. See `run_eval.sh` for more details.
+#### IDEFICS
 
 ```bash
-export CUDA_VISIBLE_DEVICES=0
-export MASTER_ADDR='localhost'
-export MASTER_PORT=$(shuf -i 0-65535 -n 1)
-export PYTHONPATH="$PYTHONPATH:open_flamingo"
+source /usr/local/anaconda3/bin/activate /home/XXXX/.conda/envs/fgvd
+export PYTHONPATH="$PYTHONPATH:YOUR_PATH"
+DEVICE_NUM=4
 
-LM_PATH="" # llama model path 
-LM_TOKENIZER_PATH="" # llama model path
-CKPT_PATH=""
-VISION_ENCODER="ViT-L-14"
-VISION_ENCODER_PRETRAINED='openai'
-CACHED_PATH=""
+DATA_NAME="" # dataset name
+DATA_PATH="" # dataset path
 
-python open_flamingo/eval/evaluate.py \
-    --lm_path $LM_PATH \
-    --lm_tokenizer_path $LM_TOKENIZER_PATH \
-    --checkpoint_path $CKPT_PATH \
-    --vision_encoder_path $VISION_ENCODER \
-    --vision_encoder_pretrained $VISION_ENCODER_PRETRAINED \
+python run_gen.py \
     --dataset_name $DATA_NAME \
-    --cached_demonstration_features $CACHED_PATH \
-    --dataset_root $DATA_PATH  \
-    --rices_type "image" \
-    --cross_attn_every_n_layers 1 \
-    --precision amp_bf16 \
-    --shots 1 2 4 \
-    --method_type "ML" \
+    --dataset_root $DATA_PATH \
+    --device $DEVICE_NUM \
+    --dataset_type "test" \
     --num_samples -1 \
-    --results_file $RESULTS_FILE \
-    --Label_Distribution \
-
-    # Optional parameters: 
-    # --method_type is the label enhancement method in our paper.
-    # --description is the visual enhancement method in our paper.
-    # --ensemble is a combination of the two.
-    # --OP is the LDE(DL) method in the thesis.
-    # --Label_Distribution comes with --method_type "ML".
-    # --rices_type is the way to retrieve ICE, add it and it will use RICES method.
-    # --cached_demonstration_features is pre-computed features of image or text.
-    # --shots, shots of ICE examples.
-    # The above running code is using the LDE(DD) method under the RICES method
+    --describe \
+    --batch_size 2 \
+    --others "partlen" \
+    --model_cfg "ide.yaml" \
+    --max_length 60 \
+    --shots 0 \
 ```
-### Generation of Visual Description
-If you want to generate visual description, please use the following command and change the prompt for discription in 'openflamingo/eval/models/open_flamingo.py' for your own custom discriptive prompt.
+
+#### openflamingo
 
 ```bash
-DATA_NAME=""
-DATA_PATH=""
-RESULTS_FILE="results/{$DATA_NAME}_description.txt"
+source /usr/local/anaconda3/bin/activate /home/XXXX/.conda/envs/fgvd2
+export PYTHONPATH="$PYTHONPATH:YOUR_PATH"
+DEVICE=4
 
-python open_flamingo/eval/description.py \
-    --lm_path $LM_PATH \
-    --lm_tokenizer_path $LM_TOKENIZER_PATH \
-    --checkpoint_path $CKPT_PATH \
+DATA_NAME="" # dataset name
+DATA_PATH="" # dataset path
+
+python run_gen.py \
+    --model $MODEL \
+    --model_cfg "of9b.yaml" \
+    --device $DEVICE \
+    --shots 0 \
+    --dataset_type "train" \
     --dataset_name $DATA_NAME \
-    --vision_encoder_path $VISION_ENCODER \
-    --vision_encoder_pretrained $VISION_ENCODER_PRETRAINED \
-    --precision amp_bf16 \
-    --dataset_root $DATA_PATH  \
-    --num_samples -1 \
-    --results_file $RESULTS_FILE \
+    --dataset_root $DATA_PATH \
     --batch_size 20 \
-    --method_type "ETD" \
-    --cross_attn_every_n_layers 1 \
-    --cached_demonstration_features $CACHED_PATH \
+    --describe \
+    --max_length 60 \
+    --others "partlen" \
 ```
+#### MiniGPT-4
 
+```bash
+source /usr/local/anaconda3/bin/activate /home/XXXX/.conda/envs/fgvd
+export PYTHONPATH="$PYTHONPATH:YOUR_PATH"
+DEVICE=4
+
+DATA_NAME="" # dataset name
+DATA_PATH="" # dataset path
+
+python generate_description/eval/description_minigpt4.py \
+    --dataset_name $DATA_NAME \
+    --dataset_root $DATA_PATH \
+    --device $DEVICE \
+    --cfg_path "eval_config.yaml" \
+    --dataset_type 'test' \
+    --others "alllen" \
+    --max_new_tokens 60
+```
 
 ## Datasets
 [ImageNet](https://www.image-net.org/download.php),  [CUB-200](http://www.vision.caltech.edu/datasets/cub_200_2011/), [Stanford Dogs](http://vision.stanford.edu/aditya86/ImageNetDogs/) and  [Stanford Cars](https://www.kaggle.com/datasets/jessicali9530/stanford-cars-dataset) are chosen for evaluation.
